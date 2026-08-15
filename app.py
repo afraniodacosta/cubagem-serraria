@@ -97,9 +97,7 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
         media_geral = np.mean(st.session_state.todos_diametros)
         area_media = (3.14159 * (media_geral / 100) ** 2) / 4
         
-        # Volume Medido Sólido (Convertido)
         volume_convertido = area_media * comprimento_m * total_toras_dia
-        # Volume Estéreo Correspondente (multiplicado por 1.5)
         volume_estereo = volume_convertido * 1.5
         
         st.success("Cálculo realizado com sucesso!")
@@ -109,8 +107,8 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
         col_m3.metric("Média Diâmetro", f"{media_geral:.1f} cm")
         col_m4.metric("Toras Amostradas", f"{len(st.session_state.todos_diametros)} un")
         
-        data_hora_lote = datetime.now().strftime("%Y%m%d-%H%M")
-        checksum_id = f"LOTE-{data_hora_lote}"
+        data_hora_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+        checksum_id = f"LOTE-{datetime.now().strftime('%Y%m%d-%H%M')}"
         
         texto_copia = f"ID: {checksum_id} | VOL: {volume_estereo:.2f} | DIAM: {media_geral:.1f} | TORAS: {total_toras_dia}"
         
@@ -118,8 +116,29 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
         st.markdown("### 📋 Copie o código abaixo (Ctrl+C) para colar no sistema HTML:")
         st.code(texto_copia, language="text")
         
+        # MONTAGEM DO RELATÓRIO EXECUTIVO FORMATADO EM CSV
+        amostra_aleatoria = pd.Series(st.session_state.todos_diametros).sample(n=min(7, len(st.session_state.todos_diametros))).tolist()
+        
+        dados_relatorio = [
+            ["RELATÓRIO DE CUBAGEM DE TORAS - KAVACO INDÚSTRIA", ""],
+            ["Data / Hora do Fechamento:", data_hora_str],
+            ["ID do Lote (Checksum):", checksum_id],
+            ["Comprimento Padrão (m):", comprimento_m],
+            ["Quantidade Total de Toras:", total_toras_dia],
+            ["Média Geral de Diâmetro (cm):", round(media_geral, 1)],
+            ["Volume M³ Medido (Sólido):", round(volume_convertido, 2)],
+            ["Volume M³ Estéreo:", round(volume_estereo, 2)],
+            ["", ""],
+            ["AMOSTRA DE DIÂMETROS ALEATÓRIOS (CM)", ""]
+        ]
+        
+        for idx, d in enumerate(amostra_aleatoria, 1):
+            dados_relatorio.append([f"Amostra #{idx}", round(d, 2)])
+            
+        df_export = pd.DataFrame(dados_relatorio, columns=["Indicador / Parâmetro", "Resultado"])
+        
         novo_registro = {
-            "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "Data/Hora": data_hora_str,
             "Comprimento (m)": comprimento_m,
             "Nº Toras": total_toras_dia,
             "Média Diâmetro (cm)": round(media_geral, 1),
@@ -130,8 +149,12 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
         if len(st.session_state.historico_fechamentos) > 5:
             st.session_state.historico_fechamentos.pop()
             
-        df_final = pd.DataFrame({'Diametros_Medidos_Cm': st.session_state.todos_diametros})
-        st.download_button("Baixar Relatório Detalhado (CSV)", df_final.to_csv(index=False), f"relatorio_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
+        st.download_button(
+            "📥 Baixar Relatório Executivo (CSV)", 
+            df_export.to_csv(index=False), 
+            f"relatorio_cubagem_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv"
+        )
     else:
         st.warning("Nenhuma foto foi processada para gerar o cálculo.")
 
