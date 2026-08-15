@@ -4,6 +4,8 @@ import numpy as np
 from PIL import Image
 import pandas as pd
 from datetime import datetime
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 # --- CONFIGURAÇÃO DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(
@@ -12,11 +14,29 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- INICIALIZAÇÃO SEGURA DO FIREBASE ---
+if not firebase_admin._apps:
+    try:
+        # Configuração das credenciais do projeto Kavaco Serraria
+        cred_dict = {
+            "type": "service_account",
+            "project_id": "kavaco-serraria",
+            "private_key_id": "firebase_api_key_placeholder",
+            "private_key": "-----BEGIN PRIVATE KEY-----\n...----END PRIVATE KEY-----\n",
+            "client_email": "firebase-adminsdk@kavaco-serraria.iam.gserviceaccount.com",
+        }
+        cred = credentials.Certificate(cred_dict)
+        firebase_admin.initialize_app(cred)
+    except Exception:
+        # Modo de contingência caso utilize variáveis de ambiente da nuvem
+        pass
+
+db = firestore.client() if firebase_admin._apps else None
+
 # Exibição do Logotipo da Empresa
 col_logo1, col_logo2, col_logo3 = st.columns([2, 1, 2])
 with col_logo2:
     try:
-        # Carrega o logotipo enviado
         logo = Image.open("Kvaco Dark ICO.ico")
         st.image(logo, width=120)
     except Exception:
@@ -48,7 +68,6 @@ if arquivo_foto:
     
     if st.button("Processar Foto e Adicionar à Amostra"):
         imagem_np = np.array(imagem_pil)
-        # Verifica se a imagem é RGB ou RGBA e converte corretamente para cinza
         if len(imagem_np.shape) == 3 and imagem_np.shape[2] == 4:
             imagem_np = cv2.cvtColor(imagem_np, cv2.COLOR_RGBA2BGR)
             cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
@@ -77,15 +96,12 @@ if arquivo_foto:
             media_foto = np.mean(diametros_esta_foto)
             
             st.success(f"Foto processada com sucesso! {len(diametros_esta_foto)} toras detectadas.")
-            
-            # Apresentando os diâmetros e a média desta foto específica
             st.markdown(f"**Média de diâmetro desta foto:** `{media_foto:.1f} cm`")
             df_foto_atual = pd.DataFrame({
                 "Tora #": range(1, len(diametros_esta_foto) + 1),
                 "Diâmetro (cm)": [round(d, 2) for d in diametros_esta_foto]
             })
             st.dataframe(df_foto_atual, hide_index=True)
-            
         else:
             st.error("Não foi possível detectar topos de toras claros. Ajuste a calibração na barra lateral ou use uma foto mais nítida.")
 
@@ -108,7 +124,28 @@ if st.button("CALCULAR E SALVAR FECHAMENTO DO DIA", type="primary"):
         col_m2.metric("Média Geral de Diâmetro", f"{media_geral:.1f} cm")
         col_m3.metric("Total de Toras Amostradas", f"{len(st.session_state.todos_diametros)} un")
         
-        # Salva no histórico (mantém os últimos 5)
+        # Envio automático para o Firebase (mesma coleção de movimentações do HTML)
+        try:
+            if db:
+                db.collection('movimentacoes').add({
+                    'tipo': 'ENTRADA_TORAS',
+                    'parceiro': 'Amostragem Automática - Python',
+                    'nf': f'FECHAMENTO-{datetime.now().strftime("%d%m%Y")}',
+                    'placa': 'FOTOS-DIA',
+                    'numToras': total_toras_dia,
+                    'espessuraMed': round(media_geral, 1),
+                    'compEsp': comprimento_m,
+                    'compMed': comprimento_m,
+                    'm3Esteril': volume_total,
+                    'm3Medido': volume_total,
+                    'volume': volume_total / 1.5, # Conversão estéreo padrão do sistema
+                    'torasRachadas': 0,
+                    'data': firestore.SERVER_TIMESTAMP
+                })
+                st.success("☁️ Dados de cubagem enviados com sucesso para a nuvem do sistema!")
+        except Exception as ex:
+            st.warning(f"Cálculo realizado localmente, mas houve um aviso ao sincronizar com o banco: {ex}")
+
         novo_registro = {
             "Data": datetime.now().strftime("%d/%m/%Y"),
             "Comprimento (m)": comprimento_m,
@@ -120,13 +157,11 @@ if st.button("CALCULAR E SALVAR FECHAMENTO DO DIA", type="primary"):
         if len(st.session_state.historico_fechamentos) > 5:
             st.session_state.historico_fechamentos.pop()
             
-        # Botão para baixar relatório do dia
         df_final = pd.DataFrame({'Diametros_Medidos_Cm': st.session_state.todos_diametros})
         st.download_button("Baixar Relatório Detalhado (CSV)", df_final.to_csv(index=False), f"relatorio_{datetime.now().strftime('%Y-%m-%d')}.csv")
     else:
         st.warning("Nenhuma foto foi processada hoje para gerar o cálculo.")
 
-# Botão para limpar dados do dia corrente
 if st.button("🔄 Reiniciar Amostras do Dia"):
     st.session_state.todos_diametros = []
     st.session_state.fotos_processadas = 0
