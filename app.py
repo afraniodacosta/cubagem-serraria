@@ -5,7 +5,6 @@ import numpy as np
 from PIL import Image
 import pandas as pd
 from datetime import datetime
-from io import BytesIO
 
 # --- CONFIGURAÇÃO DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(
@@ -119,8 +118,6 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
         st.markdown("### 📋 Copie o código abaixo (Ctrl+C) para colar no sistema HTML:")
         st.code(texto_copia, language="text")
         
-        # GERAÇÃO DE RELATÓRIO EM PDF SIMPLES UTILIZANDO REPORTLAB OU MATPLOTLIB/PANDAS SE NECESSÁRIO
-        # Vamos estruturar o download CSV e um resumo executivo para download
         novo_registro = {
             "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "Comprimento (m)": comprimento_m,
@@ -135,33 +132,6 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
             
         df_final = pd.DataFrame({'Diametros_Medidos_Cm': st.session_state.todos_diametros})
         st.download_button("Baixar Relatório Detalhado (CSV)", df_final.to_csv(index=False), f"relatorio_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
-        
-        # GERAÇÃO DE PDF DO RESUMO DO LOTE
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pdfgen import canvas
-        
-        buffer = BytesIO()
-        p = canvas.Canvas(buffer, pagesize=letter)
-        p.setFont("Helvetica-Bold", 16)
-        p.drawString(50, 750, "Kavaco Indústria - Relatório de Cubagem de Toras")
-        p.setFont("Helvetica", 11)
-        p.drawString(50, 720, f"ID do Lote: {checksum_id}")
-        p.drawString(50, 700, f"Data e Hora: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-        p.drawString(50, 680, f"Total de Toras Serradas: {total_toras_dia}")
-        p.drawString(50, 660, f"Comprimento Padrão: {comprimento_m} m")
-        p.drawString(50, 640, f"Média Geral de Diâmetro: {media_geral:.1f} cm")
-        p.drawString(50, 620, f"Volume M³ Medido (Sólido): {volume_convertido:.2f} m³")
-        p.drawString(50, 600, f"Volume M³ Estéreo: {volume_estereo:.2f} m³")
-        p.showPage()
-        p.save()
-        buffer.seek(0)
-        
-        st.download_button(
-            label="📄 Baixar Resumo do Lote (PDF)",
-            data=buffer,
-            file_name=f"resumo_lote_{data_hora_lote}.pdf",
-            mime="application/pdf"
-        )
     else:
         st.warning("Nenhuma foto foi processada para gerar o cálculo.")
 
