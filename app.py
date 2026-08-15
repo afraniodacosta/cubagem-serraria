@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 import pandas as pd
 from datetime import datetime
+from io import BytesIO
 
 # --- CONFIGURAÇÃO DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(
@@ -97,33 +98,36 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
         media_geral = np.mean(st.session_state.todos_diametros)
         area_media = (3.14159 * (media_geral / 100) ** 2) / 4
         
-        # Volume convertido real (sólido)
+        # Volume Medido Sólido (Convertido)
         volume_convertido = area_media * comprimento_m * total_toras_dia
-        # Volume estéreo correspondente (multiplicado por 1.5 para bater com a entrada)
+        # Volume Estéreo Correspondente (multiplicado por 1.5)
         volume_estereo = volume_convertido * 1.5
         
         st.success("Cálculo realizado com sucesso!")
-        col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("Volume Estéreo", f"{volume_estereo:.2f} m³")
-        col_m2.metric("Média de Diâmetro", f"{media_geral:.1f} cm")
-        col_m3.metric("Toras Amostradas", f"{len(st.session_state.todos_diametros)} un")
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1.metric("M³ Estéreo", f"{volume_estereo:.2f} m³")
+        col_m2.metric("M³ Medido (Sólido)", f"{volume_convertido:.2f} m³")
+        col_m3.metric("Média Diâmetro", f"{media_geral:.1f} cm")
+        col_m4.metric("Toras Amostradas", f"{len(st.session_state.todos_diametros)} un")
         
         data_hora_lote = datetime.now().strftime("%Y%m%d-%H%M")
         checksum_id = f"LOTE-{data_hora_lote}"
         
-        # O VOL gerado agora é o estéreo correspondente para alinhar com o HTML
         texto_copia = f"ID: {checksum_id} | VOL: {volume_estereo:.2f} | DIAM: {media_geral:.1f} | TORAS: {total_toras_dia}"
         
         st.markdown("---")
         st.markdown("### 📋 Copie o código abaixo (Ctrl+C) para colar no sistema HTML:")
         st.code(texto_copia, language="text")
         
+        # GERAÇÃO DE RELATÓRIO EM PDF SIMPLES UTILIZANDO REPORTLAB OU MATPLOTLIB/PANDAS SE NECESSÁRIO
+        # Vamos estruturar o download CSV e um resumo executivo para download
         novo_registro = {
             "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "Comprimento (m)": comprimento_m,
             "Nº Toras": total_toras_dia,
             "Média Diâmetro (cm)": round(media_geral, 1),
-            "Cubagem Estéreo (m³)": round(volume_estereo, 2)
+            "M³ Medido (Sólido)": round(volume_convertido, 2),
+            "M³ Estéreo": round(volume_estereo, 2)
         }
         st.session_state.historico_fechamentos.insert(0, novo_registro)
         if len(st.session_state.historico_fechamentos) > 5:
@@ -131,6 +135,33 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
             
         df_final = pd.DataFrame({'Diametros_Medidos_Cm': st.session_state.todos_diametros})
         st.download_button("Baixar Relatório Detalhado (CSV)", df_final.to_csv(index=False), f"relatorio_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
+        
+        # GERAÇÃO DE PDF DO RESUMO DO LOTE
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfgen import canvas
+        
+        buffer = BytesIO()
+        p = canvas.Canvas(buffer, pagesize=letter)
+        p.setFont("Helvetica-Bold", 16)
+        p.drawString(50, 750, "Kavaco Indústria - Relatório de Cubagem de Toras")
+        p.setFont("Helvetica", 11)
+        p.drawString(50, 720, f"ID do Lote: {checksum_id}")
+        p.drawString(50, 700, f"Data e Hora: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        p.drawString(50, 680, f"Total de Toras Serradas: {total_toras_dia}")
+        p.drawString(50, 660, f"Comprimento Padrão: {comprimento_m} m")
+        p.drawString(50, 640, f"Média Geral de Diâmetro: {media_geral:.1f} cm")
+        p.drawString(50, 620, f"Volume M³ Medido (Sólido): {volume_convertido:.2f} m³")
+        p.drawString(50, 600, f"Volume M³ Estéreo: {volume_estereo:.2f} m³")
+        p.showPage()
+        p.save()
+        buffer.seek(0)
+        
+        st.download_button(
+            label="📄 Baixar Resumo do Lote (PDF)",
+            data=buffer,
+            file_name=f"resumo_lote_{data_hora_lote}.pdf",
+            mime="application/pdf"
+        )
     else:
         st.warning("Nenhuma foto foi processada para gerar o cálculo.")
 
