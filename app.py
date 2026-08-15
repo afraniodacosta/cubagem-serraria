@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 import pandas as pd
 from datetime import datetime
+from io import BytesIO
 
 # --- CONFIGURAÇÃO DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(
@@ -116,7 +117,7 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
         st.markdown("### 📋 Copie o código abaixo (Ctrl+C) para colar no sistema HTML:")
         st.code(texto_copia, language="text")
         
-        # MONTAGEM DO RELATÓRIO EXECUTIVO FORMATADO EM CSV
+        # MONTAGEM DA PLANILHA EXCEL FORMATADA (.XLSX)
         amostra_aleatoria = pd.Series(st.session_state.todos_diametros).sample(n=min(7, len(st.session_state.todos_diametros))).tolist()
         
         dados_relatorio = [
@@ -137,6 +138,12 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
             
         df_export = pd.DataFrame(dados_relatorio, columns=["Indicador / Parâmetro", "Resultado"])
         
+        # GERAÇÃO DO ARQUIVO EXCEL EM MEMÓRIA
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_export.to_excel(writer, index=False, sheet_name='Resumo do Lote')
+        excel_data = output.getvalue()
+        
         novo_registro = {
             "Data/Hora": data_hora_str,
             "Comprimento (m)": comprimento_m,
@@ -150,10 +157,10 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
             st.session_state.historico_fechamentos.pop()
             
         st.download_button(
-            "📥 Baixar Relatório Executivo (CSV)", 
-            df_export.to_csv(index=False), 
-            f"relatorio_cubagem_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv"
+            label="📥 Baixar Relatório em Excel (.xlsx)", 
+            data=excel_data, 
+            file_name=f"relatorio_cubagem_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
         st.warning("Nenhuma foto foi processada para gerar o cálculo.")
