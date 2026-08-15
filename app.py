@@ -4,8 +4,6 @@ import numpy as np
 from PIL import Image
 import pandas as pd
 from datetime import datetime
-import firebase_admin
-from firebase_admin import credentials, firestore
 
 # --- CONFIGURAÇÃO DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(
@@ -13,25 +11,6 @@ st.set_page_config(
     page_icon="🪵",
     layout="wide"
 )
-
-# --- INICIALIZAÇÃO SEGURA DO FIREBASE ---
-if not firebase_admin._apps:
-    try:
-        # Configuração das credenciais do projeto Kavaco Serraria
-        cred_dict = {
-            "type": "service_account",
-            "project_id": "kavaco-serraria",
-            "private_key_id": "firebase_api_key_placeholder",
-            "private_key": "-----BEGIN PRIVATE KEY-----\n...----END PRIVATE KEY-----\n",
-            "client_email": "firebase-adminsdk@kavaco-serraria.iam.gserviceaccount.com",
-        }
-        cred = credentials.Certificate(cred_dict)
-        firebase_admin.initialize_app(cred)
-    except Exception:
-        # Modo de contingência caso utilize variáveis de ambiente da nuvem
-        pass
-
-db = firestore.client() if firebase_admin._apps else None
 
 # Exibição do Logotipo da Empresa
 col_logo1, col_logo2, col_logo3 = st.columns([2, 1, 2])
@@ -59,7 +38,7 @@ pixels_por_cm = st.sidebar.slider("Calibração (Pixels/cm):", 1.0, 20.0, 5.2, 0
 
 # --- ÁREA DE INPUT: COLETA DE AMOSTRAS ---
 st.markdown("---")
-st.markdown("### 1. Coleta de Amostras (Ao longo do dia)")
+st.markdown("### 1. Coleta de Amostras (Ao longo do lote/dia)")
 arquivo_foto = st.file_uploader("Arraste ou selecione a foto da pilha (topo das toras - JPG/PNG):", type=["jpg", "jpeg", "png"])
 
 if arquivo_foto:
@@ -105,51 +84,39 @@ if arquivo_foto:
         else:
             st.error("Não foi possível detectar topos de toras claros. Ajuste a calibração na barra lateral ou use uma foto mais nítida.")
 
-# --- FECHAMENTO DO DIA ---
+# --- FECHAMENTO DO LOTE ---
 st.markdown("---")
-st.markdown("### 2. Fechamento do Dia")
+st.markdown("### 2. Fechamento do Lote / Turno")
 col_a, col_b = st.columns(2)
-total_toras_dia = col_a.number_input("Total de toras serradas no dia:", min_value=0, value=4000)
+total_toras_dia = col_a.number_input("Total de toras serradas neste lote:", min_value=0, value=4000)
 comprimento_m = col_b.number_input("Comprimento padrão das toras (m):", min_value=0.5, value=3.0)
 
-if st.button("CALCULAR E SALVAR FECHAMENTO DO DIA", type="primary"):
+if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
     if len(st.session_state.todos_diametros) > 0:
         media_geral = np.mean(st.session_state.todos_diametros)
         area_media = (3.14159 * (media_geral / 100) ** 2) / 4
         volume_total = area_media * comprimento_m * total_toras_dia
         
-        st.success("Fechamento calculado com sucesso!")
+        st.success("Cálculo realizado com sucesso!")
         col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("Volume Final do Dia", f"{volume_total:.2f} m³")
-        col_m2.metric("Média Geral de Diâmetro", f"{media_geral:.1f} cm")
-        col_m3.metric("Total de Toras Amostradas", f"{len(st.session_state.todos_diametros)} un")
+        col_m1.metric("Volume Final", f"{volume_total:.2f} m³")
+        col_m2.metric("Média de Diâmetro", f"{media_geral:.1f} cm")
+        col_m3.metric("Toras Amostradas", f"{len(st.session_state.todos_diametros)} un")
         
-        # Envio automático para o Firebase (mesma coleção de movimentações do HTML)
-        try:
-            if db:
-                db.collection('movimentacoes').add({
-                    'tipo': 'ENTRADA_TORAS',
-                    'parceiro': 'Amostragem Automática - Python',
-                    'nf': f'FECHAMENTO-{datetime.now().strftime("%d%m%Y")}',
-                    'placa': 'FOTOS-DIA',
-                    'numToras': total_toras_dia,
-                    'espessuraMed': round(media_geral, 1),
-                    'compEsp': comprimento_m,
-                    'compMed': comprimento_m,
-                    'm3Esteril': volume_total,
-                    'm3Medido': volume_total,
-                    'volume': volume_total / 1.5, # Conversão estéreo padrão do sistema
-                    'torasRachadas': 0,
-                    'data': firestore.SERVER_TIMESTAMP
-                })
-                st.success("☁️ Dados de cubagem enviados com sucesso para a nuvem do sistema!")
-        except Exception as ex:
-            st.warning(f"Cálculo realizado localmente, mas houve um aviso ao sincronizar com o banco: {ex}")
-
+        # Checksum baseado em Data e Hora exatas (permite vários lotes por dia)
+        data_hora_lote = datetime.now().strftime("%Y%m%d-%H%M")
+        checksum_id = f"LOTE-{data_hora_lote}"
+        
+        texto_copia = f"ID: {checksum_id} | VOL: {volume_total:.2f} | DIAM: {media_geral:.1f} | TORAS: {total_toras_dia}"
+        
+        st.markdown("---")
+        st.markdown("### 📋 Copie o código abaixo (Ctrl+C) para colar no sistema HTML:")
+        st.code(texto_copia, language="text")
+        
         novo_registro = {
-            "Data": datetime.now().strftime("%d/%m/%Y"),
+            "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "Comprimento (m)": comprimento_m,
-            "Nº Toras Serradas": total_toras_dia,
+            "Nº Toras": total_toras_dia,
             "Média Diâmetro (cm)": round(media_geral, 1),
             "Cubagem (m³)": round(volume_total, 2)
         }
@@ -158,20 +125,20 @@ if st.button("CALCULAR E SALVAR FECHAMENTO DO DIA", type="primary"):
             st.session_state.historico_fechamentos.pop()
             
         df_final = pd.DataFrame({'Diametros_Medidos_Cm': st.session_state.todos_diametros})
-        st.download_button("Baixar Relatório Detalhado (CSV)", df_final.to_csv(index=False), f"relatorio_{datetime.now().strftime('%Y-%m-%d')}.csv")
+        st.download_button("Baixar Relatório Detalhado (CSV)", df_final.to_csv(index=False), f"relatorio_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
     else:
-        st.warning("Nenhuma foto foi processada hoje para gerar o cálculo.")
+        st.warning("Nenhuma foto foi processada para gerar o cálculo.")
 
-if st.button("🔄 Reiniciar Amostras do Dia"):
+if st.button("🔄 Reiniciar Amostras"):
     st.session_state.todos_diametros = []
     st.session_state.fotos_processadas = 0
     st.rerun()
 
-# --- HISTÓRICO DOS 5 ÚLTIMOS FECHAMENTOS ---
+# --- HISTÓRICO ---
 st.markdown("---")
-st.markdown("### 📊 Histórico dos Últimos Fechamentos Diários")
+st.markdown("### 📊 Histórico dos Últimos Fechamentos")
 if len(st.session_state.historico_fechamentos) > 0:
     df_historico = pd.DataFrame(st.session_state.historico_fechamentos)
     st.dataframe(df_historico, hide_index=True)
 else:
-    st.info("Nenhum fechamento diário registrado ainda nesta sessão.")
+    st.info("Nenhum fechamento registrado ainda nesta sessão.")
