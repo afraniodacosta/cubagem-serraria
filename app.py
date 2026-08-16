@@ -91,7 +91,7 @@ st.markdown("---")
 st.markdown("### 2. Fechamento do Lote / Turno")
 col_a, col_b = st.columns(2)
 total_toras_dia = col_a.number_input("Total de toras serradas neste lote:", min_value=0, value=4000)
-comprimento_m = col_b.number_input("Comprimento padrão das toras (m):", min_value=0.5, value=3.0)
+comprimento_m = col_b.number_input("Comprimento padrão das toras (m):", min_value=0.5, value=2.20, step=0.1)
 
 if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
     if len(st.session_state.todos_diametros) > 0:
@@ -111,7 +111,8 @@ if st.button("CALCULAR E GERAR CÓDIGO DO LOTE", type="primary"):
         data_hora_str = datetime.now().strftime("%d/%m/%Y %H:%M")
         checksum_id = f"LOTE-{datetime.now().strftime('%Y%m%d-%H%M')}"
         
-        texto_copia = f"ID: {checksum_id} | VOL: {volume_estereo:.2f} | DIAM: {media_geral:.1f} | TORAS: {total_toras_dia}"
+        # INCLUSÃO DA TAG COMP: PARA O ABATIMENTO EXATO NO SISTEMA WEB
+        texto_copia = f"ID: {checksum_id} | VOL: {volume_estereo:.2f} | DIAM: {media_geral:.1f} | TORAS: {total_toras_dia} | COMP: {comprimento_m:.2f}"
         
         st.markdown("---")
         st.markdown("### 📋 Copie o código abaixo (Ctrl+C) para colar no sistema HTML:")
