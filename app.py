@@ -24,7 +24,7 @@ with col_logo2:
         pass
 
 st.title("🪵 Kavaco Indústria - Sistema de Cubagem")
-st.subheader("Controle Inteligente e Amostragem com Calibração Visual por Régua")
+st.subheader("Calibração por Delimitação Direta da Régua (0cm a 50cm)")
 
 # --- INICIALIZAÇÃO DE VARIÁVEIS NA MEMÓRIA ---
 if 'todos_diametros' not in st.session_state:
@@ -36,10 +36,10 @@ if 'historico_fechamentos' not in st.session_state:
 
 # --- ÁREA DE INPUT: COLETA DE AMOSTRAS ---
 st.markdown("---")
-st.markdown("### 1. Coleta de Amostras (Ao longo do lote/dia)")
-arquivo_foto = st.file_uploader("Arraste ou selecione a foto da pilha com a régua posicionada (JPG/PNG):", type=["jpg", "jpeg", "png"])
+st.markdown("### 1. Coleta de Amostras e Calibração por Limites da Régua")
+arquivo_foto = st.file_uploader("Arraste ou selecione a foto da pilha com a régua (JPG/PNG):", type=["jpg", "jpeg", "png"])
 
-escala_pixels_cm = 5.2 # Valor padrão
+escala_pixels_cm = 5.2
 
 if arquivo_foto:
     imagem_pil = Image.open(arquivo_foto)
@@ -47,62 +47,63 @@ if arquivo_foto:
     
     st.image(imagem_pil, caption="Foto Carregada com Régua de Referência", width=500)
     
-    # --- BARRA LATERAL: CALIBRAÇÃO PRECISA POR REGISTRO VISUAL DA RÉGUA ---
-    st.sidebar.header("⚙️ Calibração por Régua")
-    st.sidebar.info("Para calibrar perfeitamente, ajuste a altura em pixels que a régua de 50cm ocupa nesta foto:")
+    st.sidebar.header("🎯 Delimitação da Régua (50 cm)")
+    st.sidebar.info("Informe a posição vertical aproximada (em pixels a partir do topo da foto) onde começa o limite superior (50cm) e o limite inferior (0cm) da régua:")
     
-    # Sliders para guiar o operador na altura exata da régua na foto exibida
-    regua_altura_pixels = st.sidebar.slider(
-        "Altura da Régua (em Pixels na Foto):", 
-        min_value=50, 
-        max_value=altura_img, 
-        value=min(300, altura_img), 
-        step=5,
-        help="Meda visualmente ou ajuste para que o diâmetro das toras fique na faixa real de 14 a 22 cm."
-    )
+    # Sliders para o usuário marcar exatamente onde está o topo (50cm) e a base (0cm) da régua na foto
+    y_topo = st.sidebar.slider("Limite Superior da Régua (50 cm - Topo):", 0, altura_img, int(altura_img * 0.15))
+    y_base = st.sidebar.slider("Limite Inferior da Régua (0 cm - Base):", 0, altura_img, int(altura_img * 0.65))
     
-    # Cálculo exato: A altura selecionada em pixels representa exatamente 50 cm físicos da régua
-    escala_pixels_cm = regua_altura_pixels / 50.0
-    st.sidebar.success(f"Escala calculada: **{escala_pixels_cm:.2f} pixels/cm**")
+    # Cálculo rigoroso da altura em pixels da régua física de 50 cm
+    altura_pixels_regua = abs(y_base - y_topo)
+    
+    if altura_pixels_regua > 10:
+        escala_pixels_cm = altura_pixels_regua / 50.0
+        st.sidebar.success(f"📏 Altura da régua: **{altura_pixels_regua} pixels**\n\n🎯 **Escala Exata: {escala_pixels_cm:.2f} pixels/cm**")
+    else:
+        st.sidebar.error("⚠️ O limite inferior deve ser maior que o superior.")
 
     if st.button("Processar Foto e Adicionar à Amostra"):
-        imagem_np = np.array(imagem_pil)
-        if len(imagem_np.shape) == 3 and imagem_np.shape[2] == 4:
-            imagem_np = cv2.cvtColor(imagem_np, cv2.COLOR_RGBA2BGR)
-            cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
-        elif len(imagem_np.shape) == 3:
-            cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
+        if altura_pixels_regua <= 10:
+            st.error("Por favor, ajuste corretamente os limites da régua na barra lateral antes de processar.")
         else:
-            cinza = imagem_np
-            
-        suavizada = cv2.GaussianBlur(cinza, (9, 9), 2)
-        
-        circulos = cv2.HoughCircles(
-            suavizada, cv2.HOUGH_GRADIENT, dp=1.2, minDist=40, 
-            param1=50, param2=30, minRadius=15, maxRadius=80
-        )
-        
-        if circulos is not None:
-            circulos = np.round(circulos[0, :]).astype("int")
-            diametros_esta_foto = []
-            
-            for (x, y, raio) in circulos:
-                d_cm = (raio * 2) / escala_pixels_cm
-                diametros_esta_foto.append(d_cm)
-                st.session_state.todos_diametros.append(d_cm)
+            imagem_np = np.array(imagem_pil)
+            if len(imagem_np.shape) == 3 and imagem_np.shape[2] == 4:
+                imagem_np = cv2.cvtColor(imagem_np, cv2.COLOR_RGBA2BGR)
+                cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
+            elif len(imagem_np.shape) == 3:
+                cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
+            else:
+                cinza = imagem_np
                 
-            st.session_state.fotos_processadas += 1
-            media_foto = np.mean(diametros_esta_foto)
+            suavizada = cv2.GaussianBlur(cinza, (9, 9), 2)
             
-            st.success(f"Foto processada com sucesso! {len(diametros_esta_foto)} toras detectadas.")
-            st.markdown(f"**Média de diâmetro desta foto:** `{media_foto:.1f} cm`")
-            df_foto_atual = pd.DataFrame({
-                "Tora #": range(1, len(diametros_esta_foto) + 1),
-                "Diâmetro (cm)": [round(d, 2) for d in diametros_esta_foto]
-            })
-            st.dataframe(df_foto_atual, hide_index=True)
-        else:
-            st.error("Não foi possível detectar topos de toras claros. Verifique a iluminação ou ajuste a calibração.")
+            circulos = cv2.HoughCircles(
+                suavizada, cv2.HOUGH_GRADIENT, dp=1.2, minDist=40, 
+                param1=50, param2=30, minRadius=15, maxRadius=80
+            )
+            
+            if circulos is not None:
+                circulos = np.round(circulos[0, :]).astype("int")
+                diametros_esta_foto = []
+                
+                for (x, y, raio) in circulos:
+                    d_cm = (raio * 2) / escala_pixels_cm
+                    diametros_esta_foto.append(d_cm)
+                    st.session_state.todos_diametros.append(d_cm)
+                    
+                st.session_state.fotos_processadas += 1
+                media_foto = np.mean(diametros_esta_foto)
+                
+                st.success(f"Foto processada com sucesso! {len(diametros_esta_foto)} toras detectadas.")
+                st.markdown(f"**Média de diâmetro desta foto:** `{media_foto:.1f} cm`")
+                df_foto_atual = pd.DataFrame({
+                    "Tora #": range(1, len(diametros_esta_foto) + 1),
+                    "Diâmetro (cm)": [round(d, 2) for d in diametros_esta_foto]
+                })
+                st.dataframe(df_foto_atual, hide_index=True)
+            else:
+                st.error("Não foi possível detectar topos de toras claros. Verifique a iluminação.")
 
 # --- FECHAMENTO DO LOTE ---
 st.markdown("---")
