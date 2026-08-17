@@ -1,5 +1,4 @@
 
-
 import streamlit as st
 import cv2
 import numpy as np
@@ -26,7 +25,7 @@ with col_logo2:
         pass
 
 st.title("🪵 Kavaco Indústria - Sistema de Cubagem")
-st.subheader("Calibração Interativa Direta na Foto (Seleção da Régua)")
+st.subheader("Calibração Interativa e Filtro Comercial de Diâmetros (Mínimo 14 cm)")
 
 # --- INICIALIZAÇÃO DE VARIÁVEIS NA MEMÓRIA ---
 if 'todos_diametros' not in st.session_state:
@@ -46,10 +45,8 @@ escala_pixels_cm = 5.2
 if arquivo_foto:
     imagem_pil = Image.open(arquivo_foto)
     
-    st.info("👇 **Como calibrar:** Arraste a caixa de seleção abaixo cobrindo exatamente a régua de referência (do 0cm na base até o 50cm no topo). O sistema medirá o tamanho exato em pixels da sua seleção!")
+    st.info("👇 **Como calibrar:** Arraste a caixa de seleção abaixo cobrindo exatamente a régua de referência (do 0cm na base até o 50cm no topo).")
     
-    # Ferramenta interativa de recorte direto na foto
-    # O usuário desenha um retângulo em cima da régua diretamente na tela
     box_recorte = st_cropper(
         imagem_pil, 
         realtime_update=True, 
@@ -58,7 +55,6 @@ if arquivo_foto:
         key="recorte_regua"
     )
     
-    # O box_recorte retorna a imagem recortada. A altura (height) da imagem recortada são os pixels reais da régua de 50cm!
     altura_pixels_regua = box_recorte.height
     
     if altura_pixels_regua > 10:
@@ -80,11 +76,12 @@ if arquivo_foto:
             else:
                 cinza = imagem_np
                 
-            suavizada = cv2.GaussianBlur(cinza, (9, 9), 2)
+            suavizada = cv2.GaussianBlur(cinza, (11, 11), 2)
             
+            # Detecção otimizada para evitar sobreposições e falsos positivos
             circulos = cv2.HoughCircles(
-                suavizada, cv2.HOUGH_GRADIENT, dp=1.2, minDist=40, 
-                param1=50, param2=30, minRadius=15, maxRadius=80
+                suavizada, cv2.HOUGH_GRADIENT, dp=1.3, minDist=55, 
+                param1=60, param2=35, minRadius=20, maxRadius=120
             )
             
             if circulos is not None:
@@ -93,19 +90,25 @@ if arquivo_foto:
                 
                 for (x, y, raio) in circulos:
                     d_cm = (raio * 2) / escala_pixels_cm
-                    diametros_esta_foto.append(d_cm)
-                    st.session_state.todos_diametros.append(d_cm)
                     
-                st.session_state.fotos_processadas += 1
-                media_foto = np.mean(diametros_esta_foto)
+                    # FILTRO COMERCIAL: Aceita apenas toras com diâmetro entre 14 cm e 45 cm
+                    if 14.0 <= d_cm <= 45.0:
+                        diametros_esta_foto.append(d_cm)
+                        st.session_state.todos_diametros.append(d_cm)
                 
-                st.success(f"Foto processada com sucesso! {len(diametros_esta_foto)} toras detectadas.")
-                st.markdown(f"**Média de diâmetro desta foto:** `{media_foto:.1f} cm`")
-                df_foto_atual = pd.DataFrame({
-                    "Tora #": range(1, len(diametros_esta_foto) + 1),
-                    "Diâmetro (cm)": [round(d, 2) for d in diametros_esta_foto]
-                })
-                st.dataframe(df_foto_atual, hide_index=True)
+                if len(diametros_esta_foto) > 0:
+                    st.session_state.fotos_processadas += 1
+                    media_foto = np.mean(diametros_esta_foto)
+                    
+                    st.success(f"Foto processada com sucesso! {len(diametros_esta_foto)} toras comerciais detectadas (filtrado > 14cm).")
+                    st.markdown(f"**Média de diâmetro desta foto:** `{media_foto:.1f} cm`")
+                    df_foto_atual = pd.DataFrame({
+                        "Tora #": range(1, len(diametros_esta_foto) + 1),
+                        "Diâmetro (cm)": [round(d, 2) for d in diametros_esta_foto]
+                    })
+                    st.dataframe(df_foto_atual, hide_index=True)
+                else:
+                    st.warning("Nenhuma tora dentro do padrão comercial (>= 14cm) foi encontrada com os parâmetros atuais.")
             else:
                 st.error("Não foi possível detectar topos de toras claros. Verifique a iluminação.")
 
