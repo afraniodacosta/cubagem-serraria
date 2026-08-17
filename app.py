@@ -25,7 +25,7 @@ with col_logo2:
         pass
 
 st.title("🪵 Kavaco Indústria - Sistema de Cubagem")
-st.subheader("Controle Inteligente e Filtragem Avançada de Falsos Círculos")
+st.subheader("Calibração Interativa Balanceada (Contagem Otimizada)")
 
 # --- INICIALIZAÇÃO DE VARIÁVEIS NA MEMÓRIA ---
 if 'todos_diametros' not in st.session_state:
@@ -76,12 +76,12 @@ if arquivo_foto:
             else:
                 cinza = imagem_np
                 
-            suavizada = cv2.GaussianBlur(cinza, (13, 13), 3)
+            suavizada = cv2.GaussianBlur(cinza, (9, 9), 2)
             
-            # Parâmetros endurecidos para evitar contagens em excesso (falsos positivos)
+            # Parâmetros balanceados para recuperar a contagem de toras sem perder precisão
             circulos = cv2.HoughCircles(
-                suavizada, cv2.HOUGH_GRADIENT, dp=1.4, minDist=65, 
-                param1=80, param2=45, minRadius=22, maxRadius=110
+                suavizada, cv2.HOUGH_GRADIENT, dp=1.2, minDist=45, 
+                param1=55, param2=32, minRadius=18, maxRadius=110
             )
             
             if circulos is not None:
@@ -91,29 +91,16 @@ if arquivo_foto:
                 for (x, y, raio) in circulos:
                     d_cm = (raio * 2) / escala_pixels_cm
                     
-                    # Filtro estrito: Apenas toras comerciais reais entre 14 cm e 42 cm
-                    if 14.0 <= d_cm <= 42.0:
-                        # Verificação adicional de textura interna (peneira de falsos positivos)
-                        # Garante que o centro do círculo possui variação de pixels (não é sombra pura)
-                        try:
-                            mask_tora = np.zeros(cinza.shape, dtype=np.uint8)
-                            cv2.circle(mask_tora, (x, y), int(raio * 0.6), 255, -1)
-                            media_interno = cv2.mean(cinza, mask=mask_tora)[0]
-                            
-                            # Se o miolo não for completamente preto (sombra) ou branco estourado, aceita a tora
-                            if 20 < media_interno < 235:
-                                diametros_esta_foto.append(d_cm)
-                                st.session_state.todos_diametros.append(d_cm)
-                        except Exception:
-                            # Fallback caso a máscara ultrapasse os limites da imagem
-                            diametros_esta_foto.append(d_cm)
-                            st.session_state.todos_diametros.append(d_cm)
+                    # Filtro comercial padrão (14 cm a 45 cm)
+                    if 14.0 <= d_cm <= 45.0:
+                        diametros_esta_foto.append(d_cm)
+                        st.session_state.todos_diametros.append(d_cm)
                 
                 if len(diametros_esta_foto) > 0:
                     st.session_state.fotos_processadas += 1
                     media_foto = np.mean(diametros_esta_foto)
                     
-                    st.success(f"Foto processada com sucesso! {len(diametros_esta_foto)} toras validadas.")
+                    st.success(f"Foto processada com sucesso! {len(diametros_esta_foto)} toras detectadas.")
                     st.markdown(f"**Média de diâmetro desta foto:** `{media_foto:.1f} cm`")
                     df_foto_atual = pd.DataFrame({
                         "Tora #": range(1, len(diametros_esta_foto) + 1),
@@ -121,7 +108,7 @@ if arquivo_foto:
                     })
                     st.dataframe(df_foto_atual, hide_index=True)
                 else:
-                    st.warning("Nenhuma tora válida foi encontrada após a filtragem rigorosa.")
+                    st.warning("Nenhuma tora dentro do padrão comercial foi encontrada.")
             else:
                 st.error("Não foi possível detectar topos de toras claros. Verifique a iluminação.")
 
