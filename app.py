@@ -1,5 +1,4 @@
 
-
 import streamlit as st
 import cv2
 import numpy as np
@@ -35,44 +34,47 @@ if 'fotos_processadas' not in st.session_state:
 if 'historico_fechamentos' not in st.session_state:
     st.session_state.historico_fechamentos = []
 
-# --- FUNÇÃO DE CALIBRAÇÃO PRECISA DA RÉGUA DE 50 CM ---
-def detectar_regua_precisa(imagem_bgr):
+# --- FUNÇÃO DE CALIBRAÇÃO EXATA BASEADA NA FITA DA RÉGUA (0 A 50 CM) ---
+def detectar_regua_exata(imagem_bgr):
     """
-    Localiza o retângulo branco vertical da régua e calcula exatamente 
-    os pixels por cm com base na altura real da fita/papel graduado de 50cm.
+    Filtra o papel branco vertical da régua de forma isolada, encontrando 
+    com exatidão a altura em pixels entre o topo (50cm) e a base (0cm).
     """
     try:
         hsv = cv2.cvtColor(imagem_bgr, cv2.COLOR_BGR2HSV)
-        # Isola a faixa de cor branca da régua na foto
-        lower_white = np.array([0, 0, 160])
-        upper_white = np.array([180, 50, 255])
+        
+        # Isola a faixa de branco da fita da régua
+        lower_white = np.array([0, 0, 150])
+        upper_white = np.array([180, 55, 255])
         mask = cv2.inRange(hsv, lower_white, upper_white)
 
-        # Operação morfológica para limpar ruídos e unir o bloco da régua
-        kernel = np.ones((5, 5), np.uint8)
+        # Remove ruídos e fecha falhas
+        kernel = np.ones((7, 7), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
         contornos, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        altura_img = imagem_bgr.shape[0]
         
-        melhor_altura_pixels = None
-        maior_area = 0
+        img_h, img_w = imagem_bgr.shape[:2]
+        melhor_h = None
+        max_area = 0
 
         for c in contornos:
-            area = cv2.contourArea(c)
             x, y, w, h = cv2.boundingRect(c)
+            area = cv2.contourArea(c)
             
-            # A régua é um objeto vertical na pilha (altura bem maior que a largura)
-            # e deve ocupar uma proporção razoável da altura da imagem
-            if h > w * 2.5 and h > (altura_img * 0.15) and area > maior_area:
-                maior_area = area
-                melhor_altura_pixels = h
+            # Filtros geométricos para garantir que estamos pegando a régua vertical na pilha
+            # A altura deve ser consideravelmente maior que a largura e o objeto localizado na metade central
+            if h > w * 2.0 and h > (img_h * 0.12) and area > max_area:
+                # Confirma se o objeto tem proporção retangular vertical típica de uma régua
+                if (x + w/2) > (img_w * 0.2) and (x + w/2) < (img_w * 0.8):
+                    max_area = area
+                    melhor_h = h
 
-        if melhor_altura_pixels:
-            # Como o bloco total detectado da régua (de ponta a ponta) representa os 50 cm:
-            # (Nota: se o papel da régua possui margens extras além de 0 a 50cm, ajustamos o divisor aqui se necessário)
-            pixels_por_cm_calculado = melhor_altura_pixels / 50.0
-            if 1.0 <= pixels_por_cm_calculado <= 30.0:
+        if melhor_h:
+            # A altura exata em pixels do retângulo branco corresponde exatamente a 50 cm reais
+            pixels_por_cm_calculado = melhor_h / 50.0
+            if 1.5 <= pixels_por_cm_calculado <= 35.0:
                 return pixels_por_cm_calculado
     except Exception:
         pass
@@ -96,7 +98,7 @@ if arquivo_foto:
         imagem_np = np.array(imagem_pil)
         if len(imagem_np.shape) == 3 and imagem_np.shape[2] == 4:
             imagem_np = cv2.cvtColor(imagem_np, cv2.COLOR_RGBA2BGR)
-            cinza = cv2.cvtColor(imagem_np, cv2.COLOR_BGR2GRAY)
+            cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
             bgr = imagem_np
         elif len(imagem_np.shape) == 3:
             cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
@@ -108,12 +110,12 @@ if arquivo_foto:
         # Determina o pixels_por_cm (Automático via Régua ou Manual)
         escala_pixels_cm = pixels_por_cm_manual
         if calibracao_auto:
-            escala_detectada = detectar_regua_precisa(bgr)
+            escala_detectada = detectar_regua_exata(bgr)
             if escala_detectada:
                 escala_pixels_cm = escala_detectada
-                st.success(f"📏 Régua detectada com precisão! Calibração aplicada: `{escala_pixels_cm:.2f} pixels/cm`")
+                st.success(f"📏 Régua calibrada com sucesso! Escala aplicada: `{escala_pixels_cm:.2f} pixels/cm`")
             else:
-                st.warning("⚠️ Não foi possível isolar a régua automaticamente com exatidão. Aplicando o valor manual da barra lateral como segurança.")
+                st.warning("⚠️ Não foi possível isolar a régua automaticamente com precisão. Aplicando o valor manual da barra lateral como segurança.")
 
         suavizada = cv2.GaussianBlur(cinza, (9, 9), 2)
         
