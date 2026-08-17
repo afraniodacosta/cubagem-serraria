@@ -1,4 +1,5 @@
 
+
 import streamlit as st
 import cv2
 import numpy as np
@@ -34,46 +35,52 @@ if 'fotos_processadas' not in st.session_state:
 if 'historico_fechamentos' not in st.session_state:
     st.session_state.historico_fechamentos = []
 
-# --- FUNÇÃO ROBUSTA PARA DETECÇÃO DA RÉGUA PELAS MARCAÇÕES VERMELHAS ---
-def detectar_regua_por_marcacoes(imagem_bgr):
+# --- FUNÇÃO DE CALIBRAÇÃO PRECISA DA RÉGUA DE 50 CM ---
+def detectar_regua_precisa(imagem_bgr):
     """
-    Identifica a régua buscando pelas linhas vermelhas horizontais das marcações (0cm a 50cm).
-    Calcula a distância exata em pixels entre a primeira e a última marcação vermelha.
+    Localiza o retângulo branco vertical da régua e calcula exatamente 
+    os pixels por cm com base na altura real da fita/papel graduado de 50cm.
     """
     try:
-        # Converter para o espaço de cores HSV para isolar o vermelho das marcações da régua
         hsv = cv2.cvtColor(imagem_bgr, cv2.COLOR_BGR2HSV)
+        # Isola a faixa de cor branca da régua na foto
+        lower_white = np.array([0, 0, 160])
+        upper_white = np.array([180, 50, 255])
+        mask = cv2.inRange(hsv, lower_white, upper_white)
+
+        # Operação morfológica para limpar ruídos e unir o bloco da régua
+        kernel = np.ones((5, 5), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+        contornos, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        altura_img = imagem_bgr.shape[0]
         
-        # Intervalos de cor vermelha no OpenCV
-        lower_red1 = np.array([0, 120, 70])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([170, 120, 70])
-        upper_red2 = np.array([180, 255, 255])
-        
-        mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-        mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-        mask_red = cv2.bitwise_or(mask1, mask2)
-        
-        # Encontrar centróides ou posições verticais das marcações vermelhas
-        y_coords = np.where(mask_red > 0)[0]
-        
-        if len(y_coords) > 50: # Garante que encontrou várias marcações vermelhas suficientes
-            y_min = np.min(y_coords)
-            y_max = np.max(y_coords)
-            distancia_pixels = y_max - y_min
+        melhor_altura_pixels = None
+        maior_area = 0
+
+        for c in contornos:
+            area = cv2.contourArea(c)
+            x, y, w, h = cv2.boundingRect(c)
             
-            # Sabendo que a régua tem 50 cm do 0cm até o 50cm
-            if distancia_pixels > 100: # Validação física mínima na imagem
-                pixels_por_cm_calculado = distancia_pixels / 50.0
-                if 2.0 <= pixels_por_cm_calculado <= 25.0:
-                    return pixels_por_cm_calculado
+            # A régua é um objeto vertical na pilha (altura bem maior que a largura)
+            # e deve ocupar uma proporção razoável da altura da imagem
+            if h > w * 2.5 and h > (altura_img * 0.15) and area > maior_area:
+                maior_area = area
+                melhor_altura_pixels = h
+
+        if melhor_altura_pixels:
+            # Como o bloco total detectado da régua (de ponta a ponta) representa os 50 cm:
+            # (Nota: se o papel da régua possui margens extras além de 0 a 50cm, ajustamos o divisor aqui se necessário)
+            pixels_por_cm_calculado = melhor_altura_pixels / 50.0
+            if 1.0 <= pixels_por_cm_calculado <= 30.0:
+                return pixels_por_cm_calculado
     except Exception:
         pass
     return None
 
 # --- BARRA LATERAL: Configurações ---
 st.sidebar.header("⚙️ Configurações de Calibração")
-calibracao_auto = st.sidebar.checkbox("Usar Detecção Automática da Régua", value=True, help="Identifica as marcações da régua na foto e calcula a escala sozinha.")
+calibracao_auto = st.sidebar.checkbox("Usar Detecção Automática da Régua", value=True, help="Identifica a régua na foto e calcula a escala sozinha.")
 pixels_por_cm_manual = st.sidebar.slider("Calibração Manual (Pixels/cm):", 1.0, 20.0, 5.2, 0.1)
 
 # --- ÁREA DE INPUT: COLETA DE AMOSTRAS ---
@@ -98,15 +105,15 @@ if arquivo_foto:
             cinza = imagem_np
             bgr = cv2.cvtColor(cinza, cv2.COLOR_GRAY2BGR)
             
-        # Determina o pixels_por_cm (Automático via Marcações da Régua ou Manual)
+        # Determina o pixels_por_cm (Automático via Régua ou Manual)
         escala_pixels_cm = pixels_por_cm_manual
         if calibracao_auto:
-            escala_detectada = detectar_regua_por_marcacoes(bgr)
+            escala_detectada = detectar_regua_precisa(bgr)
             if escala_detectada:
                 escala_pixels_cm = escala_detectada
-                st.success(f"📏 Régua e marcações detectadas com sucesso! Calibração aplicada: `{escala_pixels_cm:.2f} pixels/cm`")
+                st.success(f"📏 Régua detectada com precisão! Calibração aplicada: `{escala_pixels_cm:.2f} pixels/cm`")
             else:
-                st.warning("⚠️ Não foi possível isolar as marcações da régua nesta foto. Aplicando o valor manual da barra lateral como segurança.")
+                st.warning("⚠️ Não foi possível isolar a régua automaticamente com exatidão. Aplicando o valor manual da barra lateral como segurança.")
 
         suavizada = cv2.GaussianBlur(cinza, (9, 9), 2)
         
