@@ -24,7 +24,7 @@ with col_logo2:
         pass
 
 st.title("🪵 Kavaco Indústria - Sistema de Cubagem")
-st.subheader("Controle Inteligente e Amostragem com Calibração Automática por Régua")
+st.subheader("Controle Inteligente e Amostragem com Calibração Visual por Régua")
 
 # --- INICIALIZAÇÃO DE VARIÁVEIS NA MEMÓRIA ---
 if 'todos_diametros' not in st.session_state:
@@ -34,89 +34,47 @@ if 'fotos_processadas' not in st.session_state:
 if 'historico_fechamentos' not in st.session_state:
     st.session_state.historico_fechamentos = []
 
-# --- FUNÇÃO DE CALIBRAÇÃO EXATA BASEADA NA FITA DA RÉGUA (0 A 50 CM) ---
-def detectar_regua_exata(imagem_bgr):
-    """
-    Filtra o papel branco vertical da régua de forma isolada, encontrando 
-    com exatidão a altura em pixels entre o topo (50cm) e a base (0cm).
-    """
-    try:
-        hsv = cv2.cvtColor(imagem_bgr, cv2.COLOR_BGR2HSV)
-        
-        # Isola a faixa de branco da fita da régua
-        lower_white = np.array([0, 0, 150])
-        upper_white = np.array([180, 55, 255])
-        mask = cv2.inRange(hsv, lower_white, upper_white)
-
-        # Remove ruídos e fecha falhas
-        kernel = np.ones((7, 7), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-        contornos, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        img_h, img_w = imagem_bgr.shape[:2]
-        melhor_h = None
-        max_area = 0
-
-        for c in contornos:
-            x, y, w, h = cv2.boundingRect(c)
-            area = cv2.contourArea(c)
-            
-            # Filtros geométricos para garantir que estamos pegando a régua vertical na pilha
-            # A altura deve ser consideravelmente maior que a largura e o objeto localizado na metade central
-            if h > w * 2.0 and h > (img_h * 0.12) and area > max_area:
-                # Confirma se o objeto tem proporção retangular vertical típica de uma régua
-                if (x + w/2) > (img_w * 0.2) and (x + w/2) < (img_w * 0.8):
-                    max_area = area
-                    melhor_h = h
-
-        if melhor_h:
-            # A altura exata em pixels do retângulo branco corresponde exatamente a 50 cm reais
-            pixels_por_cm_calculado = melhor_h / 50.0
-            if 1.5 <= pixels_por_cm_calculado <= 35.0:
-                return pixels_por_cm_calculado
-    except Exception:
-        pass
-    return None
-
-# --- BARRA LATERAL: Configurações ---
-st.sidebar.header("⚙️ Configurações de Calibração")
-calibracao_auto = st.sidebar.checkbox("Usar Detecção Automática da Régua", value=True, help="Identifica a régua na foto e calcula a escala sozinha.")
-pixels_por_cm_manual = st.sidebar.slider("Calibração Manual (Pixels/cm):", 1.0, 20.0, 5.2, 0.1)
-
 # --- ÁREA DE INPUT: COLETA DE AMOSTRAS ---
 st.markdown("---")
 st.markdown("### 1. Coleta de Amostras (Ao longo do lote/dia)")
 arquivo_foto = st.file_uploader("Arraste ou selecione a foto da pilha com a régua posicionada (JPG/PNG):", type=["jpg", "jpeg", "png"])
 
+escala_pixels_cm = 5.2 # Valor padrão
+
 if arquivo_foto:
     imagem_pil = Image.open(arquivo_foto)
-    st.image(imagem_pil, caption="Foto Carregada com Régua de Referência", width=400)
+    largura_img, altura_img = imagem_pil.size
     
+    st.image(imagem_pil, caption="Foto Carregada com Régua de Referência", width=500)
+    
+    # --- BARRA LATERAL: CALIBRAÇÃO PRECISA POR REGISTRO VISUAL DA RÉGUA ---
+    st.sidebar.header("⚙️ Calibração por Régua")
+    st.sidebar.info("Para calibrar perfeitamente, ajuste a altura em pixels que a régua de 50cm ocupa nesta foto:")
+    
+    # Sliders para guiar o operador na altura exata da régua na foto exibida
+    regua_altura_pixels = st.sidebar.slider(
+        "Altura da Régua (em Pixels na Foto):", 
+        min_value=50, 
+        max_value=altura_img, 
+        value=min(300, altura_img), 
+        step=5,
+        help="Meda visualmente ou ajuste para que o diâmetro das toras fique na faixa real de 14 a 22 cm."
+    )
+    
+    # Cálculo exato: A altura selecionada em pixels representa exatamente 50 cm físicos da régua
+    escala_pixels_cm = regua_altura_pixels / 50.0
+    st.sidebar.success(f"Escala calculada: **{escala_pixels_cm:.2f} pixels/cm**")
+
     if st.button("Processar Foto e Adicionar à Amostra"):
         imagem_np = np.array(imagem_pil)
         if len(imagem_np.shape) == 3 and imagem_np.shape[2] == 4:
             imagem_np = cv2.cvtColor(imagem_np, cv2.COLOR_RGBA2BGR)
             cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
-            bgr = imagem_np
         elif len(imagem_np.shape) == 3:
             cinza = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2GRAY)
-            bgr = cv2.cvtColor(imagem_np, cv2.COLOR_RGB2BGR)
         else:
             cinza = imagem_np
-            bgr = cv2.cvtColor(cinza, cv2.COLOR_GRAY2BGR)
             
-        # Determina o pixels_por_cm (Automático via Régua ou Manual)
-        escala_pixels_cm = pixels_por_cm_manual
-        if calibracao_auto:
-            escala_detectada = detectar_regua_exata(bgr)
-            if escala_detectada:
-                escala_pixels_cm = escala_detectada
-                st.success(f"📏 Régua calibrada com sucesso! Escala aplicada: `{escala_pixels_cm:.2f} pixels/cm`")
-            else:
-                st.warning("⚠️ Não foi possível isolar a régua automaticamente com precisão. Aplicando o valor manual da barra lateral como segurança.")
-
         suavizada = cv2.GaussianBlur(cinza, (9, 9), 2)
         
         circulos = cv2.HoughCircles(
