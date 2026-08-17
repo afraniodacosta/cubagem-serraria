@@ -1,4 +1,5 @@
 
+
 import streamlit as st
 import cv2
 import numpy as np
@@ -6,6 +7,7 @@ from PIL import Image
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
+from streamlit_cropper import st_cropper
 
 # --- CONFIGURAÇÃO DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(
@@ -24,7 +26,7 @@ with col_logo2:
         pass
 
 st.title("🪵 Kavaco Indústria - Sistema de Cubagem")
-st.subheader("Calibração por Delimitação Direta da Régua (0cm a 50cm)")
+st.subheader("Calibração Interativa Direta na Foto (Seleção da Régua)")
 
 # --- INICIALIZAÇÃO DE VARIÁVEIS NA MEMÓRIA ---
 if 'todos_diametros' not in st.session_state:
@@ -34,38 +36,40 @@ if 'fotos_processadas' not in st.session_state:
 if 'historico_fechamentos' not in st.session_state:
     st.session_state.historico_fechamentos = []
 
-# --- ÁREA DE INPUT: COLETA DE AMOSTRAS ---
+# --- ÁREA DE INPUT: COLETA DE AMOSTRAS E CROP DA RÉGUA ---
 st.markdown("---")
-st.markdown("### 1. Coleta de Amostras e Calibração por Limites da Régua")
+st.markdown("### 1. Selecione a foto e delimite a régua diretamente na imagem")
 arquivo_foto = st.file_uploader("Arraste ou selecione a foto da pilha com a régua (JPG/PNG):", type=["jpg", "jpeg", "png"])
 
 escala_pixels_cm = 5.2
 
 if arquivo_foto:
     imagem_pil = Image.open(arquivo_foto)
-    largura_img, altura_img = imagem_pil.size
     
-    st.image(imagem_pil, caption="Foto Carregada com Régua de Referência", width=500)
+    st.info("👇 **Como calibrar:** Arraste a caixa de seleção abaixo cobrindo exatamente a régua de referência (do 0cm na base até o 50cm no topo). O sistema medirá o tamanho exato em pixels da sua seleção!")
     
-    st.sidebar.header("🎯 Delimitação da Régua (50 cm)")
-    st.sidebar.info("Informe a posição vertical aproximada (em pixels a partir do topo da foto) onde começa o limite superior (50cm) e o limite inferior (0cm) da régua:")
+    # Ferramenta interativa de recorte direto na foto
+    # O usuário desenha um retângulo em cima da régua diretamente na tela
+    box_recorte = st_cropper(
+        imagem_pil, 
+        realtime_update=True, 
+        box_color='#FF0000', 
+        aspect_ratio=None,
+        key="recorte_regua"
+    )
     
-    # Sliders para o usuário marcar exatamente onde está o topo (50cm) e a base (0cm) da régua na foto
-    y_topo = st.sidebar.slider("Limite Superior da Régua (50 cm - Topo):", 0, altura_img, int(altura_img * 0.15))
-    y_base = st.sidebar.slider("Limite Inferior da Régua (0 cm - Base):", 0, altura_img, int(altura_img * 0.65))
-    
-    # Cálculo rigoroso da altura em pixels da régua física de 50 cm
-    altura_pixels_regua = abs(y_base - y_topo)
+    # O box_recorte retorna a imagem recortada. A altura (height) da imagem recortada são os pixels reais da régua de 50cm!
+    altura_pixels_regua = box_recorte.height
     
     if altura_pixels_regua > 10:
         escala_pixels_cm = altura_pixels_regua / 50.0
-        st.sidebar.success(f"📏 Altura da régua: **{altura_pixels_regua} pixels**\n\n🎯 **Escala Exata: {escala_pixels_cm:.2f} pixels/cm**")
+        st.success(f"📏 Altura da régua selecionada: **{altura_pixels_regua} pixels**\n\n🎯 **Escala Exata Aplicada: {escala_pixels_cm:.2f} pixels/cm**")
     else:
-        st.sidebar.error("⚠️ O limite inferior deve ser maior que o superior.")
+        st.warning("⚠️ Selecione uma área maior cobrindo a régua na foto.")
 
     if st.button("Processar Foto e Adicionar à Amostra"):
         if altura_pixels_regua <= 10:
-            st.error("Por favor, ajuste corretamente os limites da régua na barra lateral antes de processar.")
+            st.error("Por favor, delimite a régua corretamente na foto antes de processar.")
         else:
             imagem_np = np.array(imagem_pil)
             if len(imagem_np.shape) == 3 and imagem_np.shape[2] == 4:
